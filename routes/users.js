@@ -2,125 +2,135 @@ const User = require('../models/user');
 const Task = require('../models/task');
 
 module.exports = function (router) {
-
   const usersRoute = router.route('/users');
   const usersRouteById = router.route('/users/:userId');
+
+  const parseJSON = (input, defaultValue) => {
+    try {
+      return input ? JSON.parse(input) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
 
   // ----------------------------------------------------------
   // POST /users → Create a new user
   // ----------------------------------------------------------
-  usersRoute.post(async function (req, res) {
+  usersRoute.post(async (req, res) => {
     try {
       const { name, email } = req.body;
-
-      // Validation
       if (!name || !email) {
-        return res.status(400).json({ message: 'Missing required fields: name and email' });
+        return res.status(400).json({ message: 'Missing required fields: name and email', data: null });
       }
 
-      const user = new User({
-        name,
-        email,
-        pendingTasks: [],
-        dateCreated: new Date()
-      });
-
+      const user = new User({ name, email, pendingTasks: [] });
       const savedUser = await user.save();
-      res.status(201).json({ message: 'User created!', data: savedUser });
 
+      res.status(201).json({ message: 'User created successfully', data: savedUser });
     } catch (error) {
+      if (error.code === 11000) {
+        return res.status(400).json({ message: 'Email already exists. Please use a different email.', data: null });
+      }
       console.error('Error creating user:', error);
-      res.status(500).json({ message: 'Error creating user', error: error.message });
+      res.status(500).json({ message: 'Error creating user', data: null });
     }
   });
 
   // ----------------------------------------------------------
-  // GET /users → Get all users
+  // GET /users → List users (with query parameters)
   // ----------------------------------------------------------
-  usersRoute.get(async function (req, res) {
+  usersRoute.get(async (req, res) => {
     try {
-      const users = await User.find();
-      res.json(users);
+      const where = parseJSON(req.query.where, {});
+      const sort = parseJSON(req.query.sort, {});
+      const select = parseJSON(req.query.select, {});
+      const skip = parseInt(req.query.skip) || 0;
+      const limit = parseInt(req.query.limit) || 0;
+      const count = req.query.count === 'true';
+
+      if (count) {
+        const total = await User.countDocuments(where);
+        return res.json({ message: 'OK', data: { count: total } });
+      }
+
+      const users = await User.find(where)
+        .sort(sort)
+        .select(select)
+        .skip(skip)
+        .limit(limit)
+        .exec();
+
+      res.json({ message: 'OK', data: users });
     } catch (error) {
       console.error('Error fetching users:', error);
-      res.status(500).json({ message: 'Error fetching users', error: error.message });
+      res.status(500).json({ message: 'Error fetching users', data: null });
     }
   });
 
   // ----------------------------------------------------------
-  // GET /users/:userId → Get details of a specific user
+  // GET /users/:id → Get specific user
   // ----------------------------------------------------------
-  usersRouteById.get(async function (req, res) {
+  usersRouteById.get(async (req, res) => {
     try {
       const userId = req.params.userId;
-      const user = await User.findById(userId);
-
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-
-      res.json(user);
+      const select = parseJSON(req.query.select, {});
+      const user = await User.findById(userId).select(select).exec();
+      if (!user) return res.status(404).json({ message: 'User not found', data: null });
+      res.json({ message: 'OK', data: user });
     } catch (error) {
-      console.error('Error fetching user details:', error);
-      res.status(500).json({ message: 'Error fetching user details', error: error.message });
+      console.error('Error fetching user:', error);
+      res.status(500).json({ message: 'Error fetching user', data: null });
     }
   });
 
   // ----------------------------------------------------------
-  // PUT /users/:userId → Replace entire user
+  // PUT /users/:id → Replace user
   // ----------------------------------------------------------
-  usersRouteById.put(async function (req, res) {
+  usersRouteById.put(async (req, res) => {
     try {
       const userId = req.params.userId;
       const { name, email, pendingTasks } = req.body;
 
-      // Validation
       if (!name || !email) {
-        return res.status(400).json({ message: 'Missing required fields: name and email' });
+        return res.status(400).json({ message: 'Missing required fields: name and email', data: null });
       }
 
-      const existingUser = await User.findById(userId);
-      if (!existingUser) {
-        return res.status(404).json({ message: 'User not found' });
-      }
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ message: 'User not found', data: null });
 
-      // Update fields
-      existingUser.name = name;
-      existingUser.email = email;
-      existingUser.pendingTasks = pendingTasks || existingUser.pendingTasks;
+      user.name = name;
+      user.email = email;
+      user.pendingTasks = pendingTasks || [];
 
-      const updatedUser = await existingUser.save();
-      res.json(updatedUser);
-
+      const updatedUser = await user.save();
+      res.json({ message: 'User updated successfully', data: updatedUser });
     } catch (error) {
+      if (error.code === 11000) {
+        return res.status(400).json({ message: 'Email already exists. Please use a different email.', data: null });
+      }
       console.error('Error updating user:', error);
-      res.status(400).json({ message: 'Error updating user', error: error.message });
+      res.status(400).json({ message: 'Error updating user', data: null });
     }
   });
 
   // ----------------------------------------------------------
-  // DELETE /users/:userId → Delete a user
+  // DELETE /users/:id → Delete user
   // ----------------------------------------------------------
-  usersRouteById.delete(async function (req, res) {
+  usersRouteById.delete(async (req, res) => {
     try {
       const userId = req.params.userId;
-      const deletedUser = await User.findByIdAndRemove(userId);
+      const deletedUser = await User.findByIdAndDelete(userId).exec();
+      if (!deletedUser) return res.status(404).json({ message: 'User not found', data: null });
 
-      if (!deletedUser) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-
-      // Unassign this user from their tasks
       await Task.updateMany(
         { assignedUser: userId },
         { $set: { assignedUser: "", assignedUserName: "unassigned" } }
       );
 
-      res.json({ message: 'User deleted successfully', data: deletedUser });
-
+      res.status(204).json({ message: 'User deleted successfully', data: deletedUser });
     } catch (error) {
       console.error('Error deleting user:', error);
-      res.status(500).json({ message: 'Error deleting user', error: error.message });
+      res.status(500).json({ message: 'Error deleting user', data: null });
     }
   });
 

@@ -84,30 +84,48 @@ module.exports = function (router) {
   });
 
   // ----------------------------------------------------------
-  // PUT /users/:id → Replace user
+  // PUT /users/:id → Update user (partial allowed) and sync name with tasks
   // ----------------------------------------------------------
   usersRouteById.put(async (req, res) => {
     try {
       const userId = req.params.userId;
       const { name, email, pendingTasks } = req.body;
 
-      if (!name || !email) {
-        return res.status(400).json({ message: 'Missing required fields: name and email', data: null });
+      // Find user
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found', data: null });
       }
 
-      const user = await User.findById(userId);
-      if (!user) return res.status(404).json({ message: 'User not found', data: null });
+      const oldName = user.name;
+      const oldEmail = user.email;
 
-      user.name = name;
-      user.email = email;
-      user.pendingTasks = pendingTasks || [];
+      // ---- Update only provided fields ----
+      if (name !== undefined) user.name = name;
+      if (email !== undefined) user.email = email;
+      if (pendingTasks !== undefined) user.pendingTasks = pendingTasks;
 
+      // ---- Save updated user ----
       const updatedUser = await user.save();
+
+      // ---- If name changed, update assignedUserName in their tasks ----
+      if (name !== undefined && name !== oldName) {
+        await Task.updateMany(
+          { assignedUser: userId },
+          { $set: { assignedUserName: name } }
+        );
+      }
+
       res.json({ message: 'User updated successfully', data: updatedUser });
     } catch (error) {
+      // Handle duplicate email
       if (error.code === 11000) {
-        return res.status(400).json({ message: 'Email already exists. Please use a different email.', data: null });
+        return res.status(400).json({
+          message: 'Email already exists. Please use a different email.',
+          data: null
+        });
       }
+
       console.error('Error updating user:', error);
       res.status(400).json({ message: 'Error updating user', data: null });
     }

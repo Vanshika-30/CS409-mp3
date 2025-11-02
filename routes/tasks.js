@@ -97,44 +97,102 @@ module.exports = function (router) {
   });
 
   // ----------------------------------------------------------
-  // PUT /tasks/:id → Replace task
+  // PUT /tasks/:id → Replace task with validation and user sync
   // ----------------------------------------------------------
   tasksRouteById.put(async (req, res) => {
     try {
       const taskId = req.params.taskId;
       const { name, description, deadline, completed, assignedUser, assignedUserName } = req.body;
-      if (!name || !deadline) {
-        return res.status(400).json({ message: 'Missing required fields: name and deadline', data: null });
-      }
 
       const task = await Task.findById(taskId).exec();
-      if (!task) return res.status(404).json({ message: 'Task not found', data: null });
+      if (!task) {
+        return res.status(404).json({ message: 'Task not found', data: null });
+      }
 
-      // Handle unassignment from old user
-      if (task.assignedUser && task.assignedUser !== assignedUser) {
-        const oldUser = await User.findById(task.assignedUser);
-        if (oldUser) {
-          oldUser.pendingTasks = oldUser.pendingTasks.filter(id => id !== task._id.toString());
-          await oldUser.save();
+      // Prevent changing _id
+      if (req.body._id && req.body._id !== taskId) {
+        return res.status(400).json({ message: 'Task ID cannot be modified', data: null });
+      }
+
+      // Flags
+      const hasAssignedUserField = Object.prototype.hasOwnProperty.call(req.body, 'assignedUser');
+      const hasAssignedUserNameField = Object.prototype.hasOwnProperty.call(req.body, 'assignedUserName');
+      const isCompletedChanged = typeof completed === 'boolean' && completed !== task.completed;
+
+      let isUserChanged = false;
+      let newAssignedUser = null;
+
+      // ---- Handle reassignment if explicitly passed ----
+      if (hasAssignedUserField) {
+        const newUserId = (assignedUser || "").toString();
+        const oldUserId = (task.assignedUser || "").toString();
+
+        if (newUserId !== oldUserId) {
+          isUserChanged = true;
+
+          // Remove from old user's pendingTasks
+          if (oldUserId) {
+            const oldUser = await User.findById(oldUserId);
+            if (oldUser) {
+              oldUser.pendingTasks = oldUser.pendingTasks.filter(id => id !== task._id.toString());
+              await oldUser.save();
+            }
+          }
+
+          // Handle unassignment
+          if (!newUserId) {
+            task.assignedUser = "";
+            task.assignedUserName = "unassigned";
+          } else {
+            newAssignedUser = await User.findById(newUserId);
+            if (!newAssignedUser) {
+              return res.status(400).json({ message: 'Assigned user not found', data: null });
+            }
+
+            if (hasAssignedUserNameField && newAssignedUser.name !== assignedUserName) {
+              return res.status(400).json({
+                message: `assignedUserName does not match user's actual name (${newAssignedUser.name})`,
+                data: null
+              });
+            }
+
+            task.assignedUser = newUserId;
+            task.assignedUserName = hasAssignedUserNameField ? assignedUserName : newAssignedUser.name;
+          }
         }
       }
 
-      // Update fields
-      task.name = name;
-      task.description = description;
-      task.deadline = deadline;
-      task.completed = completed || false;
-      task.assignedUser = assignedUser || "";
-      task.assignedUserName = assignedUserName || "unassigned";
+      // ---- Update other editable fields ----
+      if (name !== undefined) task.name = name;
+      if (description !== undefined) task.description = description;
+      if (deadline !== undefined) task.deadline = deadline;
+      if (typeof completed === 'boolean') task.completed = completed;
 
       const updatedTask = await task.save();
 
-      // Add to new user
-      if (assignedUser) {
-        const newUser = await User.findById(assignedUser);
-        if (newUser && !newUser.pendingTasks.includes(taskId)) {
-          newUser.pendingTasks.push(taskId);
-          await newUser.save();
+      // ---- Maintain pendingTasks consistency ----
+      if (isUserChanged && newAssignedUser) {
+        // Only add if not completed
+        if (!updatedTask.completed && !newAssignedUser.pendingTasks.includes(taskId)) {
+          newAssignedUser.pendingTasks.push(taskId);
+          await newAssignedUser.save();
+        }
+      } 
+      // ensure pendingTasks consistency even if user didn’t "change"
+      else if (!isUserChanged && updatedTask.assignedUser && !updatedTask.completed) {
+        const currentUser = await User.findById(updatedTask.assignedUser);
+        if (currentUser && !currentUser.pendingTasks.includes(taskId)) {
+          currentUser.pendingTasks.push(taskId);
+          await currentUser.save();
+        }
+      }
+
+      // If task is marked complete, remove from pendingTasks
+      if (isCompletedChanged && updatedTask.completed && task.assignedUser) {
+        const assigned = await User.findById(task.assignedUser);
+        if (assigned) {
+          assigned.pendingTasks = assigned.pendingTasks.filter(id => id !== task._id.toString());
+          await assigned.save();
         }
       }
 

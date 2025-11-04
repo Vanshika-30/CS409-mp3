@@ -145,9 +145,9 @@ module.exports = function (router) {
           }
 
           // If belongs to another user
-          // if (task.assignedUser && task.assignedUser !== userId) {
-          //   return res.status(500).json({ message: `Task ${tid} is assigned to another user`, data: null });
-          // }
+          if (task.assignedUser && task.assignedUser !== userId) {
+            return res.status(500).json({ message: `Task ${tid} is assigned to another user`, data: null });
+          }
 
           // Assign if needed
           if (!task.assignedUser) {

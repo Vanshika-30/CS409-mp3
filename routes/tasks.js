@@ -51,7 +51,7 @@ tasksRoute.post(async (req, res) => {
 
     // Add to user's pendingTasks only if not completed
     if (validUser && !completed) {
-      validUser.pendingTasks.push(savedTask._id.toString());
+      validUser.pendingTasks.addToSet(savedTask._id.toString());
       await validUser.save();
     }
 
@@ -187,7 +187,7 @@ tasksRoute.post(async (req, res) => {
       if (isUserChanged && newAssignedUser) {
         // Only add if not completed
         if (!updatedTask.completed && !newAssignedUser.pendingTasks.includes(taskId)) {
-          newAssignedUser.pendingTasks.push(taskId);
+          newAssignedUser.pendingTasks.addToSet(taskId);
           await newAssignedUser.save();
         }
       } 
@@ -195,7 +195,7 @@ tasksRoute.post(async (req, res) => {
       else if (!isUserChanged && updatedTask.assignedUser && !updatedTask.completed) {
         const currentUser = await User.findById(updatedTask.assignedUser);
         if (currentUser && !currentUser.pendingTasks.includes(taskId)) {
-          currentUser.pendingTasks.push(taskId);
+          currentUser.pendingTasks.addToSet(taskId);
           await currentUser.save();
         }
       }

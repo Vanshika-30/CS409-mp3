@@ -18,7 +18,7 @@ module.exports = function (router) {
 // ----------------------------------------------------------
 tasksRoute.post(async (req, res) => {
   try {
-    const { name, description, deadline, completed = false, assignedUser } = req.body;
+    const { name, description, deadline, iscompleted = false, assignedUser } = req.body;
 
     if (!name || !deadline) {
       return res.status(400).json({ message: 'Missing required fields: name and deadline', data: null });
@@ -35,6 +35,8 @@ tasksRoute.post(async (req, res) => {
       }
       assignedUserName = validUser.name;
     }
+
+    const completed = String(req.body.completed).toLowerCase() === 'true' ? true : false;
 
     const task = new Task({
       name,

@@ -134,7 +134,7 @@ tasksRoute.post(async (req, res) => {
 
       // Flags
       const hasAssignedUserField = Object.prototype.hasOwnProperty.call(req.body, 'assignedUser');
-      const hasAssignedUserNameField = Object.prototype.hasOwnProperty.call(req.body, 'assignedUserName');
+      var hasAssignedUserNameField = Object.prototype.hasOwnProperty.call(req.body, 'assignedUserName');
       const isCompletedChanged = typeof completed === 'boolean' && completed !== task.completed;
 
       let isUserChanged = false;
@@ -167,13 +167,19 @@ tasksRoute.post(async (req, res) => {
               return res.status(400).json({ message: 'Assigned user not found', data: null });
             }
 
-            if (hasAssignedUserNameField && newAssignedUser.name !== assignedUserName) {
-              return res.status(400).json({
-                message: `assignedUserName does not match user's actual name (${newAssignedUser.name})`,
-                data: null
-              });
+            if (hasAssignedUserNameField) {
+              if (assignedUserName === '') {
+                hasAssignedUserNameField = false;
+              }
+              // Validate assignedUserName if provided
+              else if (newAssignedUser.name !== assignedUserName) {
+                return res.status(400).json({
+                  message: `assignedUserName does not match user's actual name (${newAssignedUser.name})`,
+                  data: null
+                });
+              }
             }
-
+            // Assign to new user
             task.assignedUser = newUserId;
             task.assignedUserName = hasAssignedUserNameField ? assignedUserName : newAssignedUser.name;
           }

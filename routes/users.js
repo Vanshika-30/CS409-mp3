@@ -19,13 +19,33 @@ module.exports = function (router) {
   // ----------------------------------------------------------
   usersRoute.post(async (req, res) => {
     try {
-      const { name, email } = req.body;
+      const { name, email, pendingTasks } = req.body;
       if (!name || !email) {
         return res.status(400).json({ message: 'Missing required fields: name and email', data: null });
       }
+      //TODO: Add pending tasks after validation here
+      const validTasks = new Set();
+      for (const tid of pendingTasks) {
+        const task = await Task.findById(tid);
+        if (!task){
+          return res.status(400).json({ message: `Task ${tid} does not exist`, data: null });
+        }
 
-      const user = new User({ name, email, pendingTasks: [] });
+        // If belongs to another user
+        if (task.assignedUser && task.assignedUser !== userId) {
+          return res.status(500).json({ message: `Task ${tid} is assigned to another user`, data: null });
+        }
+
+        validTasks.add(tid);
+      }
+
+      const user = new User({ name, email, pendingTasks: [...validTasks] });
       const savedUser = await user.save();
+
+      Task.updateMany(
+        { _id: { $in: [...validTasks] } },
+        { $set: { assignedUser: savedUser._id.toString(), assignedUserName: savedUser.name } }
+      ).exec();
 
       res.status(201).json({ message: 'User created successfully', data: savedUser });
     } catch (error) {

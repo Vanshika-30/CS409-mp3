@@ -18,14 +18,14 @@ module.exports = function (router) {
 // ----------------------------------------------------------
 tasksRoute.post(async (req, res) => {
   try {
-    const { name, description, deadline, iscompleted = false, assignedUser } = req.body;
+    const { name, description, deadline, iscompleted = false, assignedUser, assignedUserName } = req.body;
 
     if (!name || !deadline) {
       return res.status(400).json({ message: 'Missing required fields: name and deadline', data: null });
     }
 
-    let assignedUserName = "unassigned";
     let validUser = null;
+    var hasAssignedUserNameField = Object.prototype.hasOwnProperty.call(req.body, 'assignedUserName');
 
     // Validate assigned user and set name correctly
     if (assignedUser) {
@@ -33,7 +33,20 @@ tasksRoute.post(async (req, res) => {
       if (!validUser) {
         return res.status(400).json({ message: 'Assigned user not found', data: null });
       }
-      assignedUserName = validUser.name;
+      if (hasAssignedUserNameField) {
+        if (assignedUserName === '') {
+          hasAssignedUserNameField = false;
+        }
+        // Validate assignedUserName if provided
+        else if (validUser.name !== assignedUserName) {
+          return res.status(400).json({
+            message: `assignedUserName does not match user's actual name (${validUser.name})`,
+            data: null
+          });
+        }
+      }
+      var finalAssignedUserName = hasAssignedUserNameField ? assignedUserName : validUser.name;
+
     }
 
     const completed = String(req.body.completed).toLowerCase() === 'true' ? true : false;
@@ -44,7 +57,7 @@ tasksRoute.post(async (req, res) => {
       deadline,
       completed,
       assignedUser: validUser ? validUser._id.toString() : "",
-      assignedUserName,
+      assignedUserName: finalAssignedUserName,
     });
 
     const savedTask = await task.save();
@@ -58,7 +71,7 @@ tasksRoute.post(async (req, res) => {
     res.status(201).json({ message: 'Task created successfully', data: savedTask });
   } catch (error) {
     console.error('Error creating task:', error);
-    res.status(500).json({ message: 'Error creating task', data: null });
+    res.status(500).json({ message: 'Error creating task', data: error.message });
   }
 });
 

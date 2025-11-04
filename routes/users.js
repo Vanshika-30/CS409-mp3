@@ -28,7 +28,7 @@ module.exports = function (router) {
       for (const tid of pendingTasks) {
         const task = await Task.findById(tid);
         if (!task){
-          return res.status(400).json({ message: `Task ${tid} does not exist`, data: null });
+          return res.status(404).json({ message: `Task ${tid} does not exist`, data: null });
         }
 
         // If belongs to another user
@@ -50,7 +50,7 @@ module.exports = function (router) {
       res.status(201).json({ message: 'User created successfully', data: savedUser });
     } catch (error) {
       if (error.code === 11000) {
-        return res.status(400).json({ message: 'Email already exists. Please use a different email.', data: null });
+        return res.status(500).json({ message: 'Email already exists. Please use a different email.', data: null });
       }
       console.error('Error creating user:', error);
       res.status(500).json({ message: 'Error creating user', data: null });
@@ -105,7 +105,7 @@ module.exports = function (router) {
   });
 
   // ----------------------------------------------------------
-  // PUT /users/:id → Update user (partial allowed) and sync tasks
+  // PUT /users/:id → Update user and sync tasks
   // ----------------------------------------------------------
   usersRouteById.put(async (req, res) => {
     try {

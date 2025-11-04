@@ -122,6 +122,11 @@ tasksRoute.post(async (req, res) => {
         return res.status(404).json({ message: 'Task not found', data: null });
       }
 
+      // Prevent modifying completed tasks
+      if(task.completed){
+        return res.status(400).json({ message: 'Completed tasks cannot be modified', data: null });
+      }
+
       // Prevent changing _id
       if (req.body._id && req.body._id !== taskId) {
         return res.status(400).json({ message: 'Task ID cannot be modified', data: null });

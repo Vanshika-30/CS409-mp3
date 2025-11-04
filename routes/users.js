@@ -84,53 +84,77 @@ module.exports = function (router) {
   });
 
   // ----------------------------------------------------------
-  // PUT /users/:id → Update user (partial allowed) and sync name with tasks
-  // ----------------------------------------------------------
-  usersRouteById.put(async (req, res) => {
-    try {
-      const userId = req.params.userId;
-      const { name, email, pendingTasks } = req.body;
+// PUT /users/:id → Update user (partial allowed) and sync tasks
+// ----------------------------------------------------------
+usersRouteById.put(async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const { name, email, pendingTasks } = req.body;
 
-      // Find user
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found', data: null });
-      }
-
-      const oldName = user.name;
-      const oldEmail = user.email;
-
-      // ---- Update only provided fields ----
-      if (name !== undefined) user.name = name;
-      if (email !== undefined) user.email = email;
-      if (pendingTasks !== undefined) user.pendingTasks = pendingTasks;
-
-      // ---- Save updated user ----
-      const updatedUser = await user.save();
-
-      // ---- If name changed, update assignedUserName in their tasks ----
-      if (name !== undefined && name !== oldName) {
-        await Task.updateMany(
-          { assignedUser: userId },
-          { $set: { assignedUserName: name } }
-        );
-      }
-
-      res.json({ message: 'User updated successfully', data: updatedUser });
-    } catch (error) {
-      // Handle duplicate email
-      if (error.code === 11000) {
-        return res.status(400).json({
-          message: 'Email already exists. Please use a different email.',
-          data: null
-        });
-      }
-
-      console.error('Error updating user:', error);
-      res.status(400).json({ message: 'Error updating user', data: null });
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found', data: null });
     }
-  });
 
+    const oldName = user.name;
+    const oldPending = new Set(user.pendingTasks.map(String));
+
+    // ---- Update fields ----
+    if (name !== undefined) user.name = name;
+    if (email !== undefined) user.email = email;
+
+    // ---- Handle pendingTasks ----
+    if (Array.isArray(pendingTasks)) {
+      // Validate that all tasks belong to this user or are unassigned
+      const validTasks = [];
+      for (const tid of pendingTasks) {
+        const task = await Task.findById(tid);
+        if (!task) continue;
+
+        // If belongs to another user
+        if (task.assignedUser && task.assignedUser !== userId) {
+          return res.status(500).json({ message: `Task ${tid} is assigned to another user`, data: null });
+        }
+
+        // Assign if needed
+        if (!task.assignedUser) {
+          task.assignedUser = userId;
+          task.assignedUserName = user.name;
+          await task.save();
+        }
+
+        validTasks.push(tid);
+      }
+
+      // Remove this user from any task no longer pending
+      const removed = [...oldPending].filter(x => !validTasks.includes(x));
+      await Task.updateMany(
+        { _id: { $in: removed }, assignedUser: userId },
+        { $set: { assignedUser: "", assignedUserName: "unassigned" } }
+      );
+
+      user.pendingTasks = validTasks;
+    }
+
+    const updatedUser = await user.save();
+
+    // ---- If name changed, update assignedUserName in their tasks ----
+    if (name !== undefined && name !== oldName) {
+      await Task.updateMany(
+        { assignedUser: userId },
+        { $set: { assignedUserName: name } }
+      );
+    }
+
+    res.json({ message: 'User updated successfully', data: updatedUser });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Email already exists. Please use a different email.', data: null });
+    }
+    console.error('Error updating user:', error);
+    res.status(400).json({ message: 'Error updating user', data: null });
+  }
+});
   // ----------------------------------------------------------
   // DELETE /users/:id → Delete user
   // ----------------------------------------------------------

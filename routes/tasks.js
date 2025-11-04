@@ -14,40 +14,51 @@ module.exports = function (router) {
   };
 
   // ----------------------------------------------------------
-  // POST /tasks → Create new task
-  // ----------------------------------------------------------
-  tasksRoute.post(async (req, res) => {
-    try {
-      const { name, description, deadline, completed, assignedUser, assignedUserName } = req.body;
-      if (!name || !deadline) {
-        return res.status(400).json({ message: 'Missing required fields: name and deadline', data: null });
-      }
+// POST /tasks → Create new task
+// ----------------------------------------------------------
+tasksRoute.post(async (req, res) => {
+  try {
+    const { name, description, deadline, completed = false, assignedUser } = req.body;
 
-      const task = new Task({
-        name,
-        description,
-        deadline,
-        completed: completed || false,
-        assignedUser: assignedUser || "",
-        assignedUserName: assignedUserName || "unassigned"
-      });
-
-      const savedTask = await task.save();
-
-      if (assignedUser) {
-        const user = await User.findById(assignedUser);
-        if (user) {
-          user.pendingTasks.push(savedTask._id.toString());
-          await user.save();
-        }
-      }
-
-      res.status(201).json({ message: 'Task created successfully', data: savedTask });
-    } catch (error) {
-      console.error('Error creating task:', error);
-      res.status(500).json({ message: 'Error creating task', data: null });
+    if (!name || !deadline) {
+      return res.status(400).json({ message: 'Missing required fields: name and deadline', data: null });
     }
-  });
+
+    let assignedUserName = "unassigned";
+    let validUser = null;
+
+    // Validate assigned user and set name correctly
+    if (assignedUser) {
+      validUser = await User.findById(assignedUser);
+      if (!validUser) {
+        return res.status(400).json({ message: 'Assigned user not found', data: null });
+      }
+      assignedUserName = validUser.name;
+    }
+
+    const task = new Task({
+      name,
+      description,
+      deadline,
+      completed,
+      assignedUser: validUser ? validUser._id.toString() : "",
+      assignedUserName,
+    });
+
+    const savedTask = await task.save();
+
+    // Add to user's pendingTasks only if not completed
+    if (validUser && !completed) {
+      validUser.pendingTasks.push(savedTask._id.toString());
+      await validUser.save();
+    }
+
+    res.status(201).json({ message: 'Task created successfully', data: savedTask });
+  } catch (error) {
+    console.error('Error creating task:', error);
+    res.status(500).json({ message: 'Error creating task', data: null });
+  }
+});
 
   // ----------------------------------------------------------
   // GET /tasks → List tasks (with query parameters)

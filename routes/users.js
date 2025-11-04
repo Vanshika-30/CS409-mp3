@@ -31,6 +31,11 @@ module.exports = function (router) {
           return res.status(404).json({ message: `Task ${tid} does not exist`, data: null });
         }
 
+        // Prevent modifying completed tasks
+        if(task.completed){
+          return res.status(400).json({ message: 'Completed tasks cannot be modified', data: null });
+        }
+
         // If belongs to another user
         if (task.assignedUser && task.assignedUser !== userId) {
           return res.status(500).json({ message: `Task ${tid} is assigned to another user`, data: null });
@@ -134,6 +139,11 @@ module.exports = function (router) {
             return res.status(400).json({ message: `Task ${tid} does not exist`, data: null });
           }
 
+          // Prevent modifying completed tasks
+          if(task.completed){
+            return res.status(400).json({ message: 'Completed tasks cannot be modified', data: null });
+          }
+          
           // If belongs to another user
           if (task.assignedUser && task.assignedUser !== userId) {
             return res.status(500).json({ message: `Task ${tid} is assigned to another user`, data: null });

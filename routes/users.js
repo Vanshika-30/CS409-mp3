@@ -145,6 +145,23 @@ module.exports = function (router) {
       if (name !== undefined) user.name = name;
       if (email !== undefined) user.email = email;
 
+      // ---- If name changed, update assignedUserName in their tasks ----
+      if (name !== undefined && name !== oldName) {
+        await Task.updateMany(
+          { assignedUser: userId },
+          { $set: { assignedUserName: name } }
+        );
+      }
+
+      var pendingTasksInput = Object.prototype.hasOwnProperty.call(req.body, 'pendingTasks');
+      
+      if (!pendingTasksInput) {
+        // If pendingTasks not provided, skip updating tasks
+        const updatedUser = await user.save();
+        return res.json({ message: 'User updated successfully', data: updatedUser });
+      }
+      
+      // To track valid tasks from input
       const validTasks = new Set();
       // ---- Handle pendingTasks ----
       if (Array.isArray(pendingTasks)) {
@@ -181,8 +198,6 @@ module.exports = function (router) {
           validTasks.add(tid);
         }
 
-        // console.log('Valid pending tasks for user update:', validTasks);
-
         // Remove this user from any task no longer pending
         const removed = [...oldPending].filter(x => !validTasks.has(x));
         await Task.updateMany(
@@ -194,14 +209,6 @@ module.exports = function (router) {
       }
 
       const updatedUser = await user.save();
-
-      // ---- If name changed, update assignedUserName in their tasks ----
-      if (name !== undefined && name !== oldName) {
-        await Task.updateMany(
-          { assignedUser: userId },
-          { $set: { assignedUserName: name } }
-        );
-      }
 
       res.json({ message: 'User updated successfully', data: updatedUser });
     } catch (error) {

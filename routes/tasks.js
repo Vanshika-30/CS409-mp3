@@ -135,6 +135,16 @@ tasksRoute.post(async (req, res) => {
           return res.status(400).json({ message: 'Invalid task ID', data: null });
       }
 
+      const requiredFields = ['name', 'deadline'];
+      const missingFields = requiredFields.filter(f => !(f in req.body));
+
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          message: `Missing required field(s): ${missingFields.join(', ')}`,
+          data: null
+        });
+      }
+
       const task = await Task.findById(taskId).exec();
       if (!task) {
         return res.status(404).json({ message: 'Task not found', data: null });

@@ -1,6 +1,6 @@
 const User = require('../models/user');
 const Task = require('../models/task');
-const { set } = require('mongoose');
+const mongoose = require('mongoose');
 
 module.exports = function (router) {
   const usersRoute = router.route('/users');
@@ -23,9 +23,15 @@ module.exports = function (router) {
       if (!name || !email) {
         return res.status(400).json({ message: 'Missing required fields: name and email', data: null });
       }
-      //TODO: Add pending tasks after validation here
+
+      // Add pending tasks after validation
       const validTasks = new Set();
+
       for (const tid of pendingTasks) {
+        if (!tid || !mongoose.Types.ObjectId.isValid(tid)) {
+            console.warn(`Skipping invalid task ID: ${tid}`);
+            continue;
+        }
         const task = await Task.findById(tid);
         if (!task){
           return res.status(404).json({ message: `Task ${tid} does not exist`, data: null });
@@ -38,7 +44,11 @@ module.exports = function (router) {
 
         // If belongs to another user
         if (task.assignedUser) {
-          return res.status(500).json({ message: `Task ${tid} is assigned to another user`, data: null });
+          const oldUser = await User.findById(task.assignedUser);
+          if (oldUser) {
+            oldUser.pendingTasks = oldUser.pendingTasks.filter(tid2 => tid2.toString() !== tid);
+            await oldUser.save();
+          }
         }
 
         validTasks.add(tid);
@@ -47,15 +57,18 @@ module.exports = function (router) {
       const user = new User({ name, email, pendingTasks: [...validTasks] });
       const savedUser = await user.save();
 
-      Task.updateMany(
-        { _id: { $in: [...validTasks] } },
-        { $set: { assignedUser: savedUser._id.toString(), assignedUserName: savedUser.name } }
-      ).exec();
+      if (validTasks.size > 0) {
+        await Task.updateMany(
+          { _id: { $in: [...validTasks] } },
+          { $set: { assignedUser: savedUser._id.toString(), assignedUserName: savedUser.name } }
+        );
+
+      }
 
       res.status(201).json({ message: 'User created successfully', data: savedUser });
     } catch (error) {
       if (error.code === 11000) {
-        return res.status(500).json({ message: 'Email already exists. Please use a different email.', data: null });
+        return res.status(400).json({ message: 'Email already exists. Please use a different email.', data: null });
       }
       console.error('Error creating user:', error);
       res.status(500).json({ message: `Error creating user ${error}`, data: null });
@@ -76,7 +89,7 @@ module.exports = function (router) {
 
       if (count) {
         const total = await User.countDocuments(where);
-        return res.json({ message: 'OK', data: { count: total } });
+        return res.status(200).json({ message: 'OK', data: { count: total } });
       }
 
       const users = await User.find(where)
@@ -86,7 +99,7 @@ module.exports = function (router) {
         .limit(limit)
         .exec();
 
-      res.json({ message: 'OK', data: users });
+      res.status(200).json({ message: 'OK', data: users });
     } catch (error) {
       console.error('Error fetching users:', error);
       res.status(500).json({ message: 'Error fetching users', data: null });
@@ -101,8 +114,12 @@ module.exports = function (router) {
       const userId = req.params.userId;
       const select = parseJSON(req.query.select, {});
       const user = await User.findById(userId).select(select).exec();
-      if (!user) return res.status(404).json({ message: 'User not found', data: null });
-      res.json({ message: 'OK', data: user });
+
+      if (!user) {
+        return res.status(404).json({ message: 'User not found', data: null });
+      }
+
+      res.status(200).json({ message: 'OK', data: user });
     } catch (error) {
       console.error('Error fetching user:', error);
       res.status(500).json({ message: 'Error fetching user', data: null });
@@ -115,7 +132,7 @@ module.exports = function (router) {
   usersRouteById.put(async (req, res) => {
     try {
       const userId = req.params.userId;
-      const { name, email, pendingTasks } = req.body;
+      const { name, email, pendingTasks = [] } = req.body;
 
       const user = await User.findById(userId);
       if (!user) {
@@ -129,14 +146,19 @@ module.exports = function (router) {
       if (name !== undefined) user.name = name;
       if (email !== undefined) user.email = email;
 
+      const validTasks = new Set();
       // ---- Handle pendingTasks ----
       if (Array.isArray(pendingTasks)) {
-        // Validate that all tasks belong to this user or are unassigned
-        const validTasks = new Set();
+
         for (const tid of pendingTasks) {
+          if (!tid || !mongoose.Types.ObjectId.isValid(tid)) {
+            console.warn(`Skipping invalid task ID: ${tid}`);
+            continue;
+          }
+
           const task = await Task.findById(tid);
           if (!task){
-            return res.status(400).json({ message: `Task ${tid} does not exist`, data: null });
+            return res.status(404).json({ message: `Task ${tid} does not exist`, data: null });
           }
 
           // Prevent modifying completed tasks
@@ -144,20 +166,24 @@ module.exports = function (router) {
             return res.status(400).json({ message: 'Completed tasks cannot be modified', data: null });
           }
 
-          // If belongs to another user
-          if (task.assignedUser && task.assignedUser !== userId) {
-            return res.status(500).json({ message: `Task ${tid} is assigned to another user`, data: null });
+          // Unassign old user and assign task to new one
+          if (task.assignedUser) {
+            if (task.assignedUser.toString() !== userId) {
+              const oldUser = await User.findById(task.assignedUser);
+              if (oldUser) {
+                oldUser.pendingTasks = oldUser.pendingTasks.filter(tid2 => tid2.toString() !== tid);
+                await oldUser.save();
+              }
+            }
           }
-
-          // Assign if needed
-          if (!task.assignedUser) {
-            task.assignedUser = userId;
-            task.assignedUserName = user.name;
-            await task.save();
-          }
+          task.assignedUser = userId;
+          task.assignedUserName = user.name;
+          await task.save();
 
           validTasks.add(tid);
         }
+
+        console.log('Valid pending tasks for user update:', validTasks);
 
         // Remove this user from any task no longer pending
         const removed = [...oldPending].filter(x => !validTasks.has(x));
@@ -185,9 +211,10 @@ module.exports = function (router) {
         return res.status(400).json({ message: 'Email already exists. Please use a different email.', data: null });
       }
       console.error('Error updating user:', error);
-      res.status(400).json({ message: 'Error updating user', data: null });
+      res.status(400).json({ message: 'Error updating user', data: error.message });
     }
   });
+
   // ----------------------------------------------------------
   // DELETE /users/:id → Delete user
   // ----------------------------------------------------------

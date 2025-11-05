@@ -1,5 +1,6 @@
 const User = require('../models/user');
 const Task = require('../models/task');
+const mongoose = require('mongoose');
 
 module.exports = function (router) {
   const tasksRoute = router.route('/tasks');
@@ -129,6 +130,11 @@ tasksRoute.post(async (req, res) => {
     try {
       const taskId = req.params.taskId;
       const { name, description, deadline, completed, assignedUser, assignedUserName } = req.body;
+
+      if (!taskId || !mongoose.Types.ObjectId.isValid(taskId)) {
+          console.warn(`Skipping invalid task ID: ${taskId}`);
+          return res.status(400).json({ message: 'Invalid task ID', data: null });
+      }
 
       const task = await Task.findById(taskId).exec();
       if (!task) {

@@ -132,7 +132,6 @@ tasksRoute.post(async (req, res) => {
       const { name, description, deadline, completed, assignedUser, assignedUserName } = req.body;
 
       if (!taskId || !mongoose.Types.ObjectId.isValid(taskId)) {
-          console.warn(`Skipping invalid task ID: ${taskId}`);
           return res.status(400).json({ message: 'Invalid task ID', data: null });
       }
 

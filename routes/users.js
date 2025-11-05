@@ -29,8 +29,7 @@ module.exports = function (router) {
 
       for (const tid of pendingTasks) {
         if (!tid || !mongoose.Types.ObjectId.isValid(tid)) {
-            console.warn(`Skipping invalid task ID: ${tid}`);
-            continue;
+            return res.status(400).json({ message: `Skipping invalid task ID: ${tid}`, data: null });
         }
         const task = await Task.findById(tid);
         if (!task){
@@ -152,8 +151,7 @@ module.exports = function (router) {
 
         for (const tid of pendingTasks) {
           if (!tid || !mongoose.Types.ObjectId.isValid(tid)) {
-            console.warn(`Skipping invalid task ID: ${tid}`);
-            continue;
+            return res.status(400).json({ message: `Skipping invalid task ID: ${tid}`, data: null });
           }
 
           const task = await Task.findById(tid);
@@ -183,7 +181,7 @@ module.exports = function (router) {
           validTasks.add(tid);
         }
 
-        console.log('Valid pending tasks for user update:', validTasks);
+        // console.log('Valid pending tasks for user update:', validTasks);
 
         // Remove this user from any task no longer pending
         const removed = [...oldPending].filter(x => !validTasks.has(x));
